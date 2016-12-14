@@ -9,6 +9,7 @@ var msgpack = require('msgpack-lite');
 var Adapter = require('socket.io-adapter');
 var debug = require('debug')('socket.io-redis');
 var async = require('async');
+var lodash = require('lodash');
 
 /**
  * Module exports.
@@ -213,7 +214,7 @@ function adapter(uri, opts){
               self.emit('error', err);
               return;
           }
-          clients = sails.sf.lodash.map(clients, function (clientId) {
+          clients = lodash.map(clients, function (clientId) {
             var data =  self.nsp.connected[clientId] || {};
             data.id = clientId;
             return data;
