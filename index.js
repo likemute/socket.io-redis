@@ -222,7 +222,7 @@ function adapter(uri, opts){
                     var respClients = lodash.keyBy(clients, 'id');
                     var response = JSON.stringify({
                         requestid: request.requestid,
-                        clients: JSON.stringify(respClients)
+                        clients: respClients
                     });
                     pub.publish(self.responseChannel, response);
                 });
@@ -287,9 +287,10 @@ function adapter(uri, opts){
             case  requestTypes.clientsData:
                 request.msgCount++;
                 // ignore if response does not contain 'clients' key
-                if(!response.clients || !Array.isArray(response.clients)) return;
+                if(!response.clients) return;
                 request.data = request.data || {};
                 request.data = lodash.assignIn(request.data, response.clients);
+
                 if (request.msgCount === request.numsub) {
                     clearTimeout(request.timeout);
                     if (request.callback) process.nextTick(request.callback.bind(null, null, request.data));
