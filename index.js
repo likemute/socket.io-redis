@@ -23,6 +23,7 @@ module.exports = adapter;
 var requestTypes = {
   clients: 0,
   clientRooms: 1,
+  clientsData: 2
 };
 
 /**
@@ -206,6 +207,26 @@ function adapter(uri, opts){
         });
         break;
 
+      case requestTypes.clientsData:
+        Adapter.prototype.clients.call(self, request.rooms, function(err, clients){
+          if(err){
+              self.emit('error', err);
+              return;
+          }
+          clients = sails.sf.lodash.map(clients, function (clientId) {
+            var data =  self.nsp.connected[clientId] || {};
+            data.id = clientId;
+            return data;
+          });
+          var response = JSON.stringify({
+              requestid: request.requestid,
+              clients: clients
+          });
+
+          pub.publish(self.responseChannel, response);
+        });
+        break;
+
       default:
         debug('ignoring unknown request type: %s', request.type);
     }
@@ -254,12 +275,26 @@ function adapter(uri, opts){
           if (request.callback) process.nextTick(request.callback.bind(null, null, Object.keys(request.clients)));
           delete self.requests[request.requestid];
         }
-        break;
+      break;
 
       case requestTypes.clientRooms:
         clearTimeout(request.timeout);
         if (request.callback) process.nextTick(request.callback.bind(null, null, response.rooms));
         delete self.requests[request.requestid];
+      break;
+
+      case  requestTypes.clientsData:
+          request.msgCount++;
+          // ignore if response does not contain 'clients' key
+          if(!response.clients || !Array.isArray(response.clients)) return;
+          for(var i = 0; i < response.clients.length; i++){
+              request.clients[response.clients[i]] = true;
+          }
+          if (request.msgCount === request.numsub) {
+              clearTimeout(request.timeout);
+              if (request.callback) process.nextTick(request.callback.bind(null, null, Object.keys(request.clients)));
+              delete self.requests[request.requestid];
+          }
         break;
 
       default:
@@ -434,6 +469,52 @@ function adapter(uri, opts){
 
       pub.publish(self.requestChannel, request);
     });
+  };
+
+  Redis.prototype.clientData = function (rooms, fn) {
+      if ('function' == typeof rooms){
+          fn = rooms;
+          rooms = null;
+      }
+
+      rooms = rooms || [];
+
+      var self = this;
+      var requestid = uid2(6);
+
+      pub.send_command('pubsub', ['numsub', self.requestChannel], function(err, numsub){
+          if (err) {
+              self.emit('error', err);
+              if (fn) fn(err);
+              return;
+          }
+
+          numsub = parseInt(numsub[1], 10);
+
+          var request = JSON.stringify({
+              requestid : requestid,
+              type: requestTypes.clientsData,
+              rooms : rooms
+          });
+
+          // if there is no response for x second, return result
+          var timeout = setTimeout(function() {
+              var request = self.requests[requestid];
+              if (fn) process.nextTick(fn.bind(null, new Error('timeout reached while waiting for clients response'), Object.keys(request.clients)));
+              delete self.requests[requestid];
+          }, self.requestsTimeout);
+
+          self.requests[requestid] = {
+              type: requestTypes.clientsData,
+              numsub: numsub,
+              msgCount: 0,
+              clients: {},
+              callback: fn,
+              timeout: timeout
+          };
+
+          pub.publish(self.requestChannel, request);
+      });
   };
 
   /**
