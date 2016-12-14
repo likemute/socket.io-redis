@@ -288,9 +288,11 @@ function adapter(uri, opts){
                 request.msgCount++;
                 // ignore if response does not contain 'clients' key
                 if(!response.clients || !Array.isArray(response.clients)) return;
+                request.data = request.data || {};
+                request.data = lodash.assignIn(request.data, response.clients);
                 if (request.msgCount === request.numsub) {
                     clearTimeout(request.timeout);
-                    if (request.callback) process.nextTick(request.callback.bind(null, null, response.clients));
+                    if (request.callback) process.nextTick(request.callback.bind(null, null, request.data));
                     delete self.requests[request.requestid];
                 }
                 break;
